@@ -1,0 +1,564 @@
+//! Gauss provides immutable CPU/CUDA tensors with explicit scoped ownership.
+
+impl for Scope {
+    /// Adds tensors with broadcasting.
+    pub fn add(self: Self, a: Tensor, b: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_map(self.id, a.id, b.id, 1_i32, - 1_i32)
+            }
+        )
+    }
+
+    /// Subtracts tensors with broadcasting.
+    pub fn sub(self: Self, a: Tensor, b: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_map(self.id, a.id, b.id, 2_i32, - 1_i32)
+            }
+        )
+    }
+
+    /// Multiplies elementwise with broadcasting.
+    pub fn mul(self: Self, a: Tensor, b: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_map(self.id, a.id, b.id, 3_i32, - 1_i32)
+            }
+        )
+    }
+
+    /// Divides elementwise with IEEE floating-point behavior.
+    pub fn div(self: Self, a: Tensor, b: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_map(self.id, a.id, b.id, 4_i32, - 1_i32)
+            }
+        )
+    }
+
+    /// Negates each element.
+    pub fn neg(self: Self, a: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_map(self.id, a.id, 0_usize, 5_i32, - 1_i32)
+            }
+        )
+    }
+
+    /// Computes absolute values.
+    pub fn abs(self: Self, a: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_map(self.id, a.id, 0_usize, 6_i32, - 1_i32)
+            }
+        )
+    }
+
+    /// Computes natural exponentials.
+    pub fn exp(self: Self, a: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_map(self.id, a.id, 0_usize, 7_i32, - 1_i32)
+            }
+        )
+    }
+
+    /// Computes natural logarithms.
+    pub fn log(self: Self, a: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_map(self.id, a.id, 0_usize, 8_i32, - 1_i32)
+            }
+        )
+    }
+
+    /// Computes square roots.
+    pub fn sqrt(self: Self, a: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_map(self.id, a.id, 0_usize, 9_i32, - 1_i32)
+            }
+        )
+    }
+
+    /// Reduces sum; axis -1 means all axes, otherwise use a nonnegative axis.
+    pub fn sum(self: Self, a: Tensor, axis: i32, keep_dims: bool) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_reduce(self.id, a.id, axis, 0_i32, keep_dims)
+            }
+        )
+    }
+
+    /// Reduces mean; axis -1 means all axes, otherwise use a nonnegative axis.
+    pub fn mean(self: Self, a: Tensor, axis: i32, keep_dims: bool) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_reduce(self.id, a.id, axis, 1_i32, keep_dims)
+            }
+        )
+    }
+
+    /// Reduces min; axis -1 means all axes, otherwise use a nonnegative axis.
+    pub fn min(self: Self, a: Tensor, axis: i32, keep_dims: bool) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_reduce(self.id, a.id, axis, 2_i32, keep_dims)
+            }
+        )
+    }
+
+    /// Reduces max; axis -1 means all axes, otherwise use a nonnegative axis.
+    pub fn max(self: Self, a: Tensor, axis: i32, keep_dims: bool) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_reduce(self.id, a.id, axis, 3_i32, keep_dims)
+            }
+        )
+    }
+
+}
+
+import core::ops::ContextManager
+import core::result::Result
+import core::vec::Vec
+
+extern fn gauss_session(device: i32) -> usize
+extern fn gauss_scope(owner: usize, child: bool) -> usize
+extern fn gauss_error() -> u32
+extern fn gauss_close_scope(id: usize) -> bool
+extern fn gauss_close_session(id: usize) -> bool
+extern fn gauss_finish(id: usize) -> bool
+extern fn gauss_exit(id: usize, session: bool) -> bool
+extern fn gauss_bytes(id: usize) -> usize
+extern fn gauss_export(scope: usize, tensor: usize) -> usize
+extern fn gauss_full(scope: usize, dtype: i32, rank: usize, shape: usize *, value: f64) -> usize
+extern fn gauss_from_f32(scope: usize, rank: usize, shape: usize *, data: f32 *, count: usize) -> usize
+extern fn gauss_from_f64(scope: usize, rank: usize, shape: usize *, data: f64 *, count: usize) -> usize
+extern fn gauss_read_f32(tensor: usize, data: f32 *, count: usize) -> bool
+extern fn gauss_read_f64(tensor: usize, data: f64 *, count: usize) -> bool
+extern fn gauss_valid(tensor: usize) -> bool
+extern fn gauss_meta(tensor: usize, key: i32, index: usize) -> usize
+extern fn gauss_view(scope: usize, tensor: usize, operation: i32, rank: usize, args: usize *) -> usize
+extern fn gauss_slice(scope: usize, tensor: usize, axis: usize, start: usize, end: usize, step: usize) -> usize
+extern fn gauss_map(scope: usize, a: usize, b: usize, operation: i32, dtype: i32) -> usize
+extern fn gauss_reduce(scope: usize, tensor: usize, axis: i32, operation: i32, keep: bool) -> usize
+extern fn gauss_matmul(scope: usize, a: usize, b: usize) -> usize
+extern fn gauss_to_device(scope: usize, tensor: usize) -> usize
+
+/// Execution placement. CPU is independent of CUDA; CUDA indices are explicit.
+pub enum Device {
+    Cpu Cuda(i32)
+}
+
+/// Stored floating-point precision. No implicit promotion or TF32 computation.
+pub enum DType {
+    F32 F64
+}
+
+/// Recoverable validation, lifetime, dependency, or execution failure.
+pub enum GaussError {
+    ClosedScope
+    Shape
+    DTypeMismatch
+    DeviceMismatch
+    OutOfMemory
+    Backend
+    Axis
+    NonContiguous
+    Overflow
+    ScopeMismatch
+    MissingDependency
+}
+
+impl for GaussError {
+    /// Returns an actionable explanation without exposing backend-specific codes.
+    pub fn message(self: Self) -> str {
+        ret match self {
+            GaussError::ClosedScope => "Resource is closed or belongs to another thread"
+            GaussError::Shape => "Incompatible shape, element count, or slice bounds"
+            GaussError::DTypeMismatch => "Dtypes differ; use astype explicitly"
+            GaussError::DeviceMismatch => "Invalid device or inputs from different sessions; use to_device"
+            GaussError::OutOfMemory => "Unable to allocate tensor storage or metadata"
+            GaussError::Backend => "Backend failed; close the session and inspect device availability"
+            GaussError::Axis => "Invalid reduction axis or permutation"
+            GaussError::NonContiguous => "Unsupported strides; use contiguous explicitly"
+            GaussError::Overflow => "Shape or BLAS dimensions exceed supported limits"
+            GaussError::ScopeMismatch => "Inputs must belong to this scope or an ancestor; use export"
+            GaussError::MissingDependency => "Backend unavailable; configure GAUSS_BLAS_LIBRARY or GAUSS_CUDA_LIBRARY"
+        }
+    }
+}
+
+fn error() -> GaussError {
+    let code = unsafe {
+        gauss_error()
+    }
+    ret match code {
+        1_u32 => GaussError::ClosedScope
+        2_u32 => GaussError::Shape
+        3_u32 => GaussError::DTypeMismatch
+        4_u32 => GaussError::DeviceMismatch
+        5_u32 => GaussError::OutOfMemory
+        7_u32 => GaussError::Axis
+        8_u32 => GaussError::NonContiguous
+        9_u32 => GaussError::Overflow
+        10_u32 => GaussError::ScopeMismatch
+        11_u32 => GaussError::MissingDependency
+        _ => GaussError::Backend
+    }
+}
+
+fn dtype_code(dtype: DType) -> i32 {
+    ret match dtype {
+        DType::F32 => 0_i32 DType::F64 => 1_i32
+    }
+}
+
+fn status(ok: bool) -> Result[bool, GaussError] {
+    if ok {
+        ret Result[bool, GaussError]::Ok(true)
+    }
+    ret Result[bool, GaussError]::Err(error())
+}
+
+fn tensor_result(id: usize) -> Result[Tensor, GaussError] {
+    if id == 0_usize {
+        ret Result[Tensor, GaussError]::Err(error())
+    }
+    ret Result[Tensor, GaussError]::Ok(Tensor {
+            id
+        }
+    )
+}
+
+/// Owns a backend and scopes on its creating thread. Always use with or close.
+pub struct Session {
+    id: usize
+}
+
+impl for Session {
+    /// Opens a CPU session; OpenBLAS must be installed or explicitly configured.
+    pub fn cpu() -> Result[Session, GaussError] {
+        ret Self::open(Device::Cpu)
+    }
+
+    /// Opens the requested device. Never silently falls back to CPU.
+    pub fn open(device: Device) -> Result[Session, GaussError] {
+        let code = match device {
+            Device::Cpu => - 1_i32
+            Device::Cuda(index) => if index < 0_i32 {
+                - 2_i32
+            } else {
+                index
+            }
+        }
+        if code < - 1_i32 {
+            ret Result[Session, GaussError]::Err(GaussError::DeviceMismatch)
+        }
+        let id = unsafe {
+            gauss_session(code)
+        }
+        if id == 0_usize {
+            ret Result[Session, GaussError]::Err(error())
+        }
+        ret Result[Session, GaussError]::Ok(Session {
+                id
+            }
+        )
+    }
+
+    /// Opens a root allocation scope. Inputs/results remain alive until it closes.
+    pub fn scope(self: Self) -> Result[Scope, GaussError] {
+        let id = unsafe {
+            gauss_scope(self.id, false)
+        }
+        if id == 0_usize {
+            ret Result[Scope, GaussError]::Err(error())
+        }
+        ret Result[Scope, GaussError]::Ok(Scope {
+                id
+            }
+        )
+    }
+
+    /// Waits for submitted work and reports deferred device failures.
+    pub fn finish(self: Self) -> Result[bool, GaussError] {
+        ret status(unsafe {
+                gauss_finish(self.id)
+            }
+        )
+    }
+
+    /// Closes every child scope and the backend; invalidates all copied handles.
+    pub fn close(self: Self) -> Result[bool, GaussError] {
+        ret status(unsafe {
+                gauss_close_session(self.id)
+            }
+        )
+    }
+
+    /// Reports live tensor storage bytes, not vendor workspaces or staging memory.
+    pub fn allocated_bytes(self: Self) -> usize {
+        ret unsafe {
+            gauss_bytes(self.id)
+        }
+    }
+}
+
+impl ContextManager for Session {
+    fn with_enter(self: Self) -> Self {
+        ret self
+    }
+    fn with_exit(self: Self) -> bool {
+        ret unsafe {
+            gauss_exit(self.id, true)
+        }
+    }
+}
+
+/// Allocation lifetime, nested inside a session or another scope.
+pub struct Scope {
+    id: usize
+}
+
+impl for Scope {
+    /// Opens a child scope which may read tensors owned by its ancestors.
+    pub fn child(self: Self) -> Result[Scope, GaussError] {
+        let id = unsafe {
+            gauss_scope(self.id, true)
+        }
+        if id == 0_usize {
+            ret Result[Scope, GaussError]::Err(error())
+        }
+        ret Result[Scope, GaussError]::Ok(Scope {
+                id
+            }
+        )
+    }
+
+    /// Waits, releases this scope and descendants, and invalidates their tensors.
+    pub fn close(self: Self) -> Result[bool, GaussError] {
+        ret status(unsafe {
+                gauss_close_scope(self.id)
+            }
+        )
+    }
+
+    /// Retains a tensor view in the immediate parent without copying storage.
+    pub fn export(self: Self, tensor: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_export(self.id, tensor.id)
+            }
+        )
+    }
+
+    /// Creates a tensor filled with value, converting it to the selected dtype.
+    pub fn full(self: Self, shape: Vec[usize], dtype: DType, value: f64) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_full(self.id, dtype_code(dtype), shape.len(), shape.as_ptr(), value)
+            }
+        )
+    }
+
+    /// Creates a zero-filled tensor.
+    pub fn zeros(self: Self, shape: Vec[usize], dtype: DType) -> Result[Tensor, GaussError] {
+        ret self.full(shape, dtype, 0.0_f64)
+    }
+
+    /// Creates a tensor of ones.
+    pub fn ones(self: Self, shape: Vec[usize], dtype: DType) -> Result[Tensor, GaussError] {
+        ret self.full(shape, dtype, 1.0_f64)
+    }
+
+    /// Copies a host f32 vector; its storage is not retained after this call.
+    pub fn from_f32(self: Self, shape: Vec[usize], values: Vec[f32]) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_from_f32(self.id, shape.len(), shape.as_ptr(), values.as_ptr(), values.len())
+            }
+        )
+    }
+
+    /// Copies a host f64 vector; its storage is not retained after this call.
+    pub fn from_f64(self: Self, shape: Vec[usize], values: Vec[f64]) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_from_f64(self.id, shape.len(), shape.as_ptr(), values.as_ptr(), values.len())
+            }
+        )
+    }
+
+    /// Copies explicitly between sessions/devices; host staging is synchronized.
+    pub fn to_device(self: Self, tensor: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_to_device(self.id, tensor.id)
+            }
+        )
+    }
+
+    /// Reshapes contiguous storage without copying. Call contiguous for other views.
+    pub fn reshape(self: Self, tensor: Tensor, shape: Vec[usize]) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_view(self.id, tensor.id, 0_i32, shape.len(), shape.as_ptr())
+            }
+        )
+    }
+
+    /// Permutes axes without copying; axes must contain each dimension once.
+    pub fn permute(self: Self, tensor: Tensor, axes: Vec[usize]) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_view(self.id, tensor.id, 1_i32, axes.len(), axes.as_ptr())
+            }
+        )
+    }
+
+    /// Swaps the last two dimensions, including batched matrices.
+    pub fn transpose(self: Self, tensor: Tensor) -> Result[Tensor, GaussError] {
+        let shape = tensor.shape()?
+        if shape.len() < 2_usize {
+            ret Result[Tensor, GaussError]::Err(GaussError::Shape)
+        }
+        let mut axes = Vec[usize]::new()
+        let mut i = 0_usize
+        while i < shape.len() {
+            axes.push(i) i += 1_usize
+        }
+        axes.set(shape.len() - 2_usize, shape.len() - 1_usize)
+        axes.set(shape.len() - 1_usize, shape.len() - 2_usize)
+        ret self.permute(tensor, axes)
+    }
+
+    /// Creates a read-only broadcast view, using NumPy-style trailing dimensions.
+    pub fn broadcast(self: Self, tensor: Tensor, shape: Vec[usize]) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_view(self.id, tensor.id, 2_i32, shape.len(), shape.as_ptr())
+            }
+        )
+    }
+
+    /// Takes a half-open slice with a positive step, without copying storage.
+    pub fn slice(self: Self, tensor: Tensor, axis: usize, start: usize, end: usize, step: usize) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_slice(self.id, tensor.id, axis, start, end, step)
+            }
+        )
+    }
+
+    /// Materializes a contiguous independent tensor in this scope.
+    pub fn contiguous(self: Self, tensor: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_map(self.id, tensor.id, 0_usize, 0_i32, - 1_i32)
+            }
+        )
+    }
+
+    /// Explicitly converts precision into a new contiguous tensor.
+    pub fn astype(self: Self, tensor: Tensor, dtype: DType) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_map(self.id, tensor.id, 0_usize, 0_i32, dtype_code(dtype))
+            }
+        )
+    }
+
+    /// Multiplies matrices, broadcasting batch axes. Rank must be at least two.
+    pub fn matmul(self: Self, a: Tensor, b: Tensor) -> Result[Tensor, GaussError] {
+        ret tensor_result(unsafe {
+                gauss_matmul(self.id, a.id, b.id)
+            }
+        )
+    }
+}
+
+impl ContextManager for Scope {
+    fn with_enter(self: Self) -> Self {
+        ret self
+    }
+    fn with_exit(self: Self) -> bool {
+        ret unsafe {
+            gauss_exit(self.id, false)
+        }
+    }
+}
+
+/// Immutable view identified by a checked native token, never a raw address.
+pub struct Tensor {
+    id: usize
+}
+
+impl for Tensor {
+    /// Returns the current shape or ClosedScope if its lifetime ended.
+    pub fn shape(self: Self) -> Result[Vec[usize], GaussError] {
+        if !unsafe {
+            gauss_valid(self.id)
+        }
+        {
+            ret Result[Vec[usize], GaussError]::Err(error())
+        }
+        let rank = unsafe {
+            gauss_meta(self.id, 0_i32, 0_usize)
+        }
+        let mut shape = Vec[usize]::new()
+        let mut i = 0_usize
+        while i < rank {
+            shape.push(unsafe {
+                    gauss_meta(self.id, 3_i32, i)
+                }
+            ) i += 1_usize
+        }
+        ret Result[Vec[usize], GaussError]::Ok(shape)
+    }
+
+    /// Returns the number of logical elements, including broadcasting.
+    pub fn len(self: Self) -> Result[usize, GaussError] {
+        if !unsafe {
+            gauss_valid(self.id)
+        }
+        {
+            ret Result[usize, GaussError]::Err(error())
+        }
+        ret Result[usize, GaussError]::Ok(unsafe {
+                gauss_meta(self.id, 1_i32, 0_usize)
+            }
+        )
+    }
+
+    /// Returns the stored precision.
+    pub fn dtype(self: Self) -> Result[DType, GaussError] {
+        if !unsafe {
+            gauss_valid(self.id)
+        }
+        {
+            ret Result[DType, GaussError]::Err(error())
+        }
+        let code = unsafe {
+            gauss_meta(self.id, 2_i32, 0_usize)
+        }
+        ret Result[DType, GaussError]::Ok(if code == 0_usize {
+                DType::F32
+            } else {
+                DType::F64
+            }
+        )
+    }
+
+    /// Synchronizes and copies logical f32 values into an independent host vector.
+    pub fn to_f32(self: Self) -> Result[Vec[f32], GaussError] {
+        let count = self.len()?
+        let mut values = Vec[f32]::new()
+        let mut i = 0_usize
+        while i < count {
+            values.push(0.0_f32) i += 1_usize
+        }
+        if !unsafe {
+            gauss_read_f32(self.id, values.as_ptr(), count)
+        }
+        {
+            ret Result[Vec[f32], GaussError]::Err(error())
+        }
+        ret Result[Vec[f32], GaussError]::Ok(values)
+    }
+
+    /// Synchronizes and copies logical f64 values into an independent host vector.
+    pub fn to_f64(self: Self) -> Result[Vec[f64], GaussError] {
+        let count = self.len()?
+        let mut values = Vec[f64]::new()
+        let mut i = 0_usize
+        while i < count {
+            values.push(0.0_f64) i += 1_usize
+        }
+        if !unsafe {
+            gauss_read_f64(self.id, values.as_ptr(), count)
+        }
+        {
+            ret Result[Vec[f64], GaussError]::Err(error())
+        }
+        ret Result[Vec[f64], GaussError]::Ok(values)
+    }
+}

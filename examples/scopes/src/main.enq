@@ -1,0 +1,46 @@
+//! Export a result while temporary tensors are released on leaving a child scope.
+import core::fmt::Debug
+import core::result::Result
+import core::vec::Vec
+import gauss::{Session, Scope, Tensor, DType, GaussError}
+import std::io::println
+
+fn calculate(parent: Scope) -> Result[Tensor, GaussError] {
+    with parent.child()? as scratch {
+        let mut shape = Vec[usize]::new()
+        shape.push(1024_usize)
+        let input = scratch.full(shape, DType::F64, 3.0_f64)?
+        let squares = scratch.mul(input, input)?
+        let total = scratch.sum(squares, - 1_i32, false)?
+        // Only this scalar's storage survives; input and squares are reclaimed.
+        ret scratch.export(total)
+    }
+}
+
+fn run() -> Result[bool, GaussError] {
+    with Session::cpu()? as session {
+        with session.scope()? as parent {
+            let result = calculate(parent)?
+            println("sum(x*x) = " + Debug::fmt(result.to_f64()?))
+            println("Live tensor bytes: " + Debug::fmt(session.allocated_bytes()))
+            if session.allocated_bytes() != 8_usize {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+        }
+        ret Result[bool, GaussError]::Ok(session.allocated_bytes() == 0_usize)
+    }
+}
+
+fn main() -> u32 {
+    match run() {
+        Ok(ok) => {
+            if ok {
+                ret 0_u32
+            }
+            ret 1_u32
+        }
+        Err(error) => {
+            println(error.message()) ret 2_u32
+        }
+    }
+}

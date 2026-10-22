@@ -1,0 +1,10 @@
+target/
+.encore_cache/
+__pycache__/
+
+# Local Encore build output and environment files
+target/
+.env
+.env.*
+!.env.example
+!.env.template

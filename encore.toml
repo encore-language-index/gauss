@@ -1,0 +1,13 @@
+[project]
+name = "gauss"
+version = "0.1.0"
+encore = ">=0.1.6"
+description = "Scoped CPU and CUDA tensors for Encore"
+licence = "MIT"
+readme = "README.md"
+dependencies = [
+    "sys@core",
+]
+
+[target.x86_64-unknown-linux-gnu]
+link-args = ["-lm", "-pthread", "-ldl"]

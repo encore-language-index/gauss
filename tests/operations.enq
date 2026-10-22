@@ -1,0 +1,138 @@
+//! Public API coverage; native numerical tests independently check each kernel.
+import core::result::Result
+import core::vec::Vec
+import gauss::{Session, Device, DType, GaussError, Tensor}
+
+fn dims(a: usize, b: usize) -> Vec[usize] {
+    let mut out = Vec[usize]::new()
+    out.push(a) out.push(b)
+    ret out
+}
+
+fn uniform(t: Tensor, expected: f64, count: usize) -> Result[bool, GaussError] {
+    let values = t.to_f64()?
+    if values.len() != count {
+        ret Result[bool, GaussError]::Ok(false)
+    }
+    for value in values {
+        if value != expected {
+            ret Result[bool, GaussError]::Ok(false)
+        }
+    }
+    ret Result[bool, GaussError]::Ok(true)
+}
+
+fn exercise(device: Device) -> Result[bool, GaussError] {
+    with Session::open(device)? as session {
+        with session.scope()? as arena {
+            let shape = dims(2_usize, 3_usize)
+            let a = arena.full(shape, DType::F64, 4.0_f64)?
+            let b = arena.full(shape, DType::F64, 2.0_f64)?
+            if !uniform(arena.add(a, b)?, 6.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.sub(a, b)?, 2.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.mul(a, b)?, 8.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.div(a, b)?, 2.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.neg(a)?, - 4.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.abs(arena.neg(a)?)?, 4.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.sqrt(a)?, 2.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.exp(arena.zeros(shape, DType::F64)?)?, 1.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.log(arena.ones(shape, DType::F64)?)?, 0.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.sum(a, 1_i32, true)?, 12.0_f64, 2_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.mean(a, 0_i32, false)?, 4.0_f64, 3_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.min(a, - 1_i32, false)?, 4.0_f64, 1_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.max(a, - 1_i32, true)?, 4.0_f64, 1_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            let transposed = arena.transpose(a)?
+            if arena.reshape(transposed, shape).is_ok() {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            let packed = arena.contiguous(transposed)?
+            if !uniform(arena.reshape(packed, shape)?, 4.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if !uniform(arena.slice(a, 1_usize, 0_usize, 3_usize, 2_usize)?, 4.0_f64, 4_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            let row = arena.ones(dims(1_usize, 3_usize), DType::F64)?
+            if !uniform(arena.broadcast(row, shape)?, 1.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            let narrow = arena.astype(a, DType::F32)?
+            if narrow.to_f64().is_ok() {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            let host = narrow.to_f32()?
+            let uploaded = arena.from_f32(shape, host)?
+            if !uniform(arena.astype(uploaded, DType::F64)?, 4.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            let double_host = a.to_f64()?
+            if !uniform(arena.from_f64(shape, double_host)?, 4.0_f64, 6_usize)? {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            match a.dtype()? {
+                DType::F64 => {
+                }
+                _ => {
+                    ret Result[bool, GaussError]::Ok(false)
+                }
+            }
+            if a.len()? != 6_usize {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if arena.add(a, narrow).is_ok() {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if arena.sum(a, 2_i32, false).is_ok() {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            if arena.slice(a, 0_usize, 0_usize, 2_usize, 0_usize).is_ok() {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            session.finish()?
+        }
+        ret Result[bool, GaussError]::Ok(session.allocated_bytes() == 0_usize)
+    }
+}
+
+fn main() -> u32 {
+    if Session::open(Device::Cuda( - 1_i32)).is_ok() {
+        ret 2_u32
+    }
+    match exercise(Device::Cpu) {
+        Ok(ok) => {
+            if !ok {
+                ret 1_u32
+            }
+        }
+        Err(e) => {
+            ret 3_u32
+        }
+    }
+    ret 0_u32
+}

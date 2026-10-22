@@ -1,0 +1,8 @@
+[project]
+name = "gauss_matmul"
+version = "0.1.0"
+encore = ">=0.1.1"
+dependencies = ["index@gauss@0.1.0", "index@std@0.0.8"]
+
+[target.x86_64-unknown-linux-gnu]
+link-args = ["-lm", "-pthread", "-ldl"]

@@ -1,0 +1,110 @@
+//! Tests the public Encore boundary, including cleanup on early return.
+import core::option::Option
+import core::result::Result
+import core::vec::Vec
+import gauss::{Session, Scope, Tensor, Device, DType, GaussError}
+
+fn dims(a: usize, b: usize) -> Vec[usize] {
+    let mut shape = Vec[usize]::new()
+    shape.push(a)
+    shape.push(b)
+    ret shape
+}
+
+fn exercise(device: Device) -> Result[bool, GaussError] {
+    let session = Session::open(device)?
+    with session as execution {
+        let scope = execution.scope()?
+        with scope as arena {
+            let a = arena.full(dims(2_usize, 3_usize), DType::F32, 2.0_f64)?
+            let b = arena.ones(dims(3_usize, 2_usize), DType::F32)?
+            let c = arena.matmul(a, b)?
+            let values = c.to_f32()?
+            if values.len() != 4_usize {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            for v in values {
+                if v != 6.0_f32 {
+                    ret Result[bool, GaussError]::Ok(false)
+                }
+            }
+            let sum = arena.sum(c, - 1_i32, false)?
+            let summed = sum.to_f32()?
+            let value = match summed.get(0_usize) {
+                Some(x) => x None => - 1.0_f32
+            }
+            if value != 24.0_f32 {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            execution.finish()?
+        }
+        if execution.allocated_bytes() != 0_usize {
+            ret Result[bool, GaussError]::Ok(false)
+        }
+        ret Result[bool, GaussError]::Ok(true)
+    }
+}
+
+fn cpu_matrix_and_scope() -> bool {
+    ret match exercise(Device::Cpu) {
+        Ok(ok) => ok Err(e) => false
+    }
+}
+
+fn cuda_matrix_and_scope() -> bool {
+    ret match exercise(Device::Cuda(0_i32)) {
+        Ok(ok) => ok Err(e) => false
+    }
+}
+
+fn escape(scope: Scope) -> Result[Tensor, GaussError] {
+    let child = scope.child()?
+    with child as temporary {
+        ret temporary.ones(dims(2_usize, 2_usize), DType::F64)
+    }
+}
+
+fn lifetime_checks() -> Result[bool, GaussError] {
+    let session = Session::cpu()?
+    with session as execution {
+        let scope = execution.scope()?
+        with scope as arena {
+            let stale = escape(arena)?
+            if stale.shape().is_ok() {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            let child = arena.child()?
+            let t = child.ones(dims(2_usize, 2_usize), DType::F64)?
+            let kept = child.export(t)?
+            child.close()?
+            if t.to_f64().is_ok() {
+                ret Result[bool, GaussError]::Ok(false)
+            }
+            let values = kept.to_f64()?
+            ret Result[bool, GaussError]::Ok(values.len() == 4_usize)
+        }
+    }
+}
+
+fn stale_handles_and_export() -> bool {
+    ret match lifetime_checks() {
+        Ok(ok) => ok Err(e) => false
+    }
+}
+
+fn main() -> u32 {
+    match exercise(Device::Cpu) {
+        Ok(ok) => {
+            if !ok {
+                ret 1_u32
+            }
+        }
+        Err(e) => {
+            ret 20_u32
+        }
+    }
+    if !stale_handles_and_export() {
+        ret 2_u32
+    }
+    ret 0_u32
+}

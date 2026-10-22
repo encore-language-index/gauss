@@ -1,0 +1,56 @@
+//! Batched matrix arithmetic with bounded temporary storage on CPU or CUDA.
+import core::fmt::Debug
+import core::result::Result
+import core::vec::Vec
+import gauss::{Session, Device, DType, GaussError}
+import std::io::println
+import std::os::argv
+
+fn shape(rows: usize, columns: usize) -> Vec[usize] {
+    let mut out = Vec[usize]::new()
+    out.push(rows)
+    out.push(columns)
+    ret out
+}
+
+fn compute(device: Device) -> Result[bool, GaussError] {
+    with Session::open(device)? as session {
+        with session.scope()? as arena {
+            let a = arena.full(shape(2_usize, 3_usize), DType::F32, 2.0_f64)?
+            let b = arena.ones(shape(3_usize, 2_usize), DType::F32)?
+            let product = arena.matmul(a, b)?
+            println("A @ B = " + Debug::fmt(product.to_f32()?))
+            // Explicit synchronization belongs at a result/measurement boundary,
+            // not after every CUDA operation.
+            session.finish()?
+        }
+        ret Result[bool, GaussError]::Ok(session.allocated_bytes() == 0_usize)
+    }
+}
+
+fn main() -> u32 {
+    // Pass --cuda to explicitly select CUDA device 0.
+    let argument = match argv(1_usize) {
+        Some(value) => value None => ""
+    }
+    if argument != "" && argument != "--cuda" {
+        println("Usage: encore run -- [--cuda]")
+        ret 2_u32
+    }
+    let device = if argument == "--cuda" {
+        Device::Cuda(0_i32)
+    } else {
+        Device::Cpu
+    }
+    match compute(device) {
+        Ok(ok) => {
+            if ok {
+                ret 0_u32
+            }
+            ret 1_u32
+        }
+        Err(error) => {
+            println("Gauss failed: " + error.message()) ret 1_u32
+        }
+    }
+}
